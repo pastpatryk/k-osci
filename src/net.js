@@ -3,6 +3,31 @@
 
 import { Peer } from 'https://esm.sh/peerjs@1.5.4?bundle';
 
+// --- Friendly peer ID generation ---
+// Creates short, memorable IDs like "SAKURA-914" to replace UUIDs in share URLs.
+const FRIENDLY_WORDS = [
+  'SAKURA', 'HANAMI', 'BONSAI', 'KAEDE', 'TSUBAKI', 'KIKYO',
+  'AZALEA', 'PEONY', 'LILAC', 'MAGNOLIA', 'IRIS', 'JASMINE',
+  'BAMBOO', 'WILLOW', 'MAPLE', 'CHERRY', 'PLUM', 'GINKGO',
+  'KOI', 'CRANE', 'HERON', 'SWALLOW', 'SPARROW', 'FINCH',
+  'DAWN', 'DUSK', 'MIST', 'CLOUD', 'SNOW', 'RAIN',
+  'STONE', 'RIVER', 'FOREST', 'MEADOW', 'GARDEN', 'PAGODA',
+];
+
+function generateFriendlyId() {
+  const word = FRIENDLY_WORDS[Math.floor(Math.random() * FRIENDLY_WORDS.length)];
+  const num = String(Math.floor(Math.random() * 900) + 100); // 100..999
+  return `${word}-${num}`;
+}
+
+// Validate incoming ?join= IDs — must be our friendly format OR a PeerJS UUID (fallback).
+export function isValidPeerId(id) {
+  if (!id || typeof id !== 'string') return false;
+  if (/^[A-Z]+-\d{3}$/.test(id)) return true;
+  // UUID fallback
+  return /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id);
+}
+
 const LISTENERS = Symbol('listeners');
 
 class Emitter {
@@ -36,29 +61,62 @@ export class NetClient extends Emitter {
   }
 
   // Create the Peer. Emits 'self-id' when the PeerJS server assigns one.
-  init() {
-    this.peer = new Peer(undefined, { debug: 1 });
+  init(attempt = 0) {
+    const friendly = generateFriendlyId();
+    this.peer = new Peer(friendly, {
+      debug: 2,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun.cloudflare.com:3478' },
+          // Public free TURN (OpenRelay) — relays traffic through metered.ca when P2P fails.
+          {
+            urls: 'turn:openrelay.metered.ca:80',
+            username: 'openrelayproject',
+            credential: 'openrelayproject',
+          },
+          {
+            urls: 'turn:openrelay.metered.ca:443',
+            username: 'openrelayproject',
+            credential: 'openrelayproject',
+          },
+          {
+            urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+            username: 'openrelayproject',
+            credential: 'openrelayproject',
+          },
+        ],
+        iceCandidatePoolSize: 4,
+      },
+    });
 
     this.peer.on('open', (id) => {
+      console.log('[net] peer open, selfId=', id);
       this.selfId = id;
       this.emit('self-id', id);
     });
 
     this.peer.on('connection', (conn) => {
-      // Incoming (host accepting a guest)
+      console.log('[net] incoming connection from', conn.peer);
       this._attachConn(conn);
     });
 
     this.peer.on('disconnected', () => {
-      // Lost connection to signalling server; try to reconnect.
+      console.warn('[net] peer disconnected from signalling');
       try { this.peer.reconnect(); } catch (_) {}
       this.emit('status', 'waiting');
     });
 
     this.peer.on('error', (err) => {
       console.warn('[net] peer error:', err && err.type, err && err.message);
+      // On friendly-id collision (unavailable-id), retry a handful of times.
+      if (err && err.type === 'unavailable-id' && attempt < 5) {
+        try { this.peer.destroy(); } catch (_) {}
+        setTimeout(() => this.init(attempt + 1), 200);
+        return;
+      }
       this.emit('error', err);
-      // "peer-unavailable" is common during reconnect attempts; don't crash.
     });
   }
 
@@ -88,7 +146,9 @@ export class NetClient extends Emitter {
 
   _attachConn(conn) {
     this.conn = conn;
+    console.log('[net] attaching conn, peer=', conn.peer, 'type=', conn.type);
     conn.on('open', () => {
+      console.log('[net] conn OPEN with', conn.peer);
       this._clearReconnect();
       this.emit('status', 'connected');
       this.emit('open', { peerId: conn.peer });
@@ -97,6 +157,7 @@ export class NetClient extends Emitter {
       this.emit('message', msg);
     });
     conn.on('close', () => {
+      console.log('[net] conn CLOSE');
       this.emit('status', 'waiting');
       this.emit('close');
       this._scheduleReconnect();
@@ -105,6 +166,39 @@ export class NetClient extends Emitter {
       console.warn('[net] conn error:', err);
       this.emit('error', err);
     });
+    // Surface ICE state + candidates if the underlying RTCPeerConnection exists.
+    const attachPc = () => {
+      const pc = conn.peerConnection;
+      if (!pc) return false;
+      pc.addEventListener('iceconnectionstatechange', () => {
+        console.log('[net] iceConnectionState=', pc.iceConnectionState);
+      });
+      pc.addEventListener('connectionstatechange', () => {
+        console.log('[net] connectionState=', pc.connectionState);
+      });
+      pc.addEventListener('icegatheringstatechange', () => {
+        console.log('[net] iceGatheringState=', pc.iceGatheringState);
+      });
+      pc.addEventListener('icecandidate', (e) => {
+        if (e.candidate) {
+          const c = e.candidate;
+          console.log(
+            '[net] local candidate:',
+            c.type, c.protocol, c.address || '(hidden)', c.port, 'priority=', c.priority
+          );
+        } else {
+          console.log('[net] candidate gathering complete');
+        }
+      });
+      pc.addEventListener('icecandidateerror', (e) => {
+        console.warn('[net] icecandidateerror:', e.errorCode, e.errorText, e.url);
+      });
+      return true;
+    };
+    if (!attachPc()) {
+      // pc might be lazily created in some PeerJS code paths; retry shortly.
+      setTimeout(attachPc, 100);
+    }
   }
 
   _scheduleReconnect() {

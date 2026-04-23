@@ -7,7 +7,6 @@ import htm from 'https://esm.sh/htm@3.1.1';
 
 import {
   CATEGORIES,
-  UPPER_BONUS_THRESHOLD,
   MAX_ROLLS,
   DICE_COUNT,
   scoreCategory,
@@ -19,28 +18,30 @@ import {
   isYahtzee,
 } from './game.js';
 
-import { NetClient } from './net.js';
+import { NetClient, isValidPeerId } from './net.js';
 import { haptics, burstConfetti, stormConfetti } from './fx.js';
 
 const html = htm.bind(h);
 
-// ---------- Category labels ----------
+// ---------- Polish labels ----------
 
 const CATEGORY_LABELS = {
-  aces: 'Aces',
-  twos: 'Twos',
-  threes: 'Threes',
-  fours: 'Fours',
-  fives: 'Fives',
-  sixes: 'Sixes',
-  threeOfAKind: '3 of a Kind',
-  fourOfAKind: '4 of a Kind',
-  fullHouse: 'Full House',
-  smallStraight: 'Sm. Straight',
-  largeStraight: 'Lg. Straight',
-  yahtzee: 'Yahtzee',
-  chance: 'Chance',
+  aces:          { pl: 'Jedynki',     en: 'Aces' },
+  twos:          { pl: 'Dwójki',      en: 'Twos' },
+  threes:        { pl: 'Trójki',      en: 'Threes' },
+  fours:         { pl: 'Czwórki',     en: 'Fours' },
+  fives:         { pl: 'Piątki',      en: 'Fives' },
+  sixes:         { pl: 'Szóstki',     en: 'Sixes' },
+  threeOfAKind:  { pl: 'Trójka',      en: '3 of a Kind' },
+  fourOfAKind:   { pl: 'Kareta',      en: '4 of a Kind' },
+  fullHouse:     { pl: 'Full',        en: 'Full House' },
+  smallStraight: { pl: 'Mały strit',  en: 'Sm. Straight' },
+  largeStraight: { pl: 'Duży strit',  en: 'Lg. Straight' },
+  yahtzee:       { pl: 'Yahtzee',     en: 'Yahtzee' },
+  chance:        { pl: 'Szansa',      en: 'Chance' },
 };
+
+const UPPER = ['aces', 'twos', 'threes', 'fours', 'fives', 'sixes'];
 
 // ---------- Randomness ----------
 
@@ -57,7 +58,8 @@ function rollValues(existing, held) {
 function App() {
   const role = useMemo(() => {
     const url = new URL(location.href);
-    return url.searchParams.get('join') ? 'guest' : 'host';
+    const joinId = url.searchParams.get('join');
+    return joinId ? 'guest' : 'host';
   }, []);
 
   const [state, dispatch] = useReducer(reducer, undefined, () => initialState(role));
@@ -65,14 +67,15 @@ function App() {
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  // Transient UI flags that don't belong in reducer state
   const [rollingKey, setRollingKey] = useState(0);
   const [showConfirmExit, setShowConfirmExit] = useState(false);
+  const [previewCategory, setPreviewCategory] = useState(null);
 
   // ---------- net setup ----------
   useEffect(() => {
     const net = new NetClient();
     netRef.current = net;
+    if (typeof window !== 'undefined') window.__net = net;
     net.init();
 
     net.on('self-id', (id) => {
@@ -82,7 +85,7 @@ function App() {
         dispatch({ type: 'SET_CONNECTION', payload: { status: 'idle' } });
       } else {
         const hostId = new URL(location.href).searchParams.get('join');
-        if (hostId) net.connect(hostId);
+        if (hostId && isValidPeerId(hostId)) net.connect(hostId);
       }
     });
 
@@ -92,7 +95,6 @@ function App() {
 
     net.on('open', ({ peerId }) => {
       dispatch({ type: 'SET_CONNECTION', payload: { peerId, status: 'connected' } });
-      // Host sends a full snapshot so the guest can hydrate.
       if (role === 'host') {
         const s = stateRef.current;
         net.send('SYNC_STATE', {
@@ -121,15 +123,11 @@ function App() {
         default:
           console.warn('[app] unknown message type:', msg.type);
       }
-      // Side effects on some incoming messages
       if (msg.type === 'SYNC_ROLL') {
         setRollingKey((k) => k + 1);
         setTimeout(() => haptics.roll(), 600);
       }
       if (msg.type === 'BANK_SCORE') {
-        // If remote side (peer) banked a Yahtzee while having already banked their initial one,
-        // we don't need to do anything special — their own client handled it for their UI.
-        // Subtle haptic confirming opponent just scored.
         haptics.bank();
       }
     });
@@ -138,7 +136,7 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ---------- Local action senders ----------
+  // ---------- Senders ----------
   const send = (type, payload) => {
     dispatch({ type, payload });
     netRef.current?.send(type, payload);
@@ -158,6 +156,7 @@ function App() {
     const rollNumber = state.game.rollNumber + 1;
     send('SYNC_ROLL', { values, rollNumber });
     setRollingKey((k) => k + 1);
+    setPreviewCategory(null);
     setTimeout(() => haptics.roll(), 600);
   };
 
@@ -172,12 +171,11 @@ function App() {
     if (state.game.turn !== 'self') return;
     if (state.game.scorecards.self[category] !== null) return;
     const points = scoreCategory(state.game.dice, category);
-    send('BANK_SCORE', { category, points });
-    haptics.bank();
-    // Simplified Yahtzee bonus UX: confetti burst when the rolled dice are a Yahtzee
-    // AND we had already banked an initial Yahtzee > 0.
     const rolledY = isYahtzee(state.game.dice.map((d) => d.value));
     const hadInitial = state.game.scorecards.self.yahtzee !== null && state.game.scorecards.self.yahtzee > 0;
+    send('BANK_SCORE', { category, points });
+    setPreviewCategory(null);
+    haptics.bank();
     if (rolledY && hadInitial) {
       haptics.yahtzee();
       burstConfetti({ x: 0.5, y: 0.35 });
@@ -191,10 +189,10 @@ function App() {
 
   const backToLobby = () => {
     netRef.current?.close();
-    // Full reset and re-init a new peer
     dispatch({ type: 'CLEAR_SESSION' });
     const net = new NetClient();
     netRef.current = net;
+    if (typeof window !== 'undefined') window.__net = net;
     net.init();
     net.on('self-id', (id) => dispatch({ type: 'SET_SELF_ID', payload: { selfId: id } }));
     net.on('status', (status) => dispatch({ type: 'SET_CONNECTION', payload: { status } }));
@@ -202,7 +200,7 @@ function App() {
     net.on('close', () => dispatch({ type: 'SET_CONNECTION', payload: { status: 'waiting' } }));
   };
 
-  // ---------- Win detection side-effects ----------
+  // ---------- Win side-effects ----------
   const prevPhase = useRef(state.game.phase);
   useEffect(() => {
     if (prevPhase.current !== 'gameOver' && state.game.phase === 'gameOver') {
@@ -228,7 +226,6 @@ function App() {
       setDisconnectSecs((s) => {
         if (s <= 1) {
           clearInterval(t);
-          // Timeout: backToLobby closes net + clears state + re-inits.
           backToLobby();
           return 0;
         }
@@ -239,7 +236,6 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.session.status, state.game.phase]);
 
-  // ---------- beforeunload guard ----------
   useEffect(() => {
     const onBeforeUnload = (e) => {
       if (state.game.phase === 'playing') {
@@ -251,25 +247,26 @@ function App() {
     return () => removeEventListener('beforeunload', onBeforeUnload);
   }, [state.game.phase]);
 
-  // ---------- Render ----------
-
   return html`
     <div class="app-root">
-      <${StatusPill} status=${state.session.status} />
+      <${TopBar} role=${role} status=${state.session.status} gameNumber=${state.session.gameNumber} phase=${state.game.phase} />
 
       ${state.game.phase === 'lobby' && html`
         <${Lobby}
-          role=${state.session.role}
+          role=${role}
           selfId=${state.session.selfId}
           status=${state.session.status}
           onStart=${startGame}
+          tally=${state.session.tally}
         />
       `}
 
-      ${(state.game.phase === 'playing' || state.game.phase === 'gameOver') && html`
-        <${Board}
+      ${(state.game.phase === 'playing') && html`
+        <${Game}
           state=${state}
           rollingKey=${rollingKey}
+          previewCategory=${previewCategory}
+          setPreviewCategory=${setPreviewCategory}
           onRoll=${doRoll}
           onToggleHold=${toggleHold}
           onBank=${bank}
@@ -277,7 +274,7 @@ function App() {
       `}
 
       ${state.game.phase === 'gameOver' && html`
-        <${GameOverOverlay}
+        <${GameOver}
           state=${state}
           onRematch=${rematch}
           onBackToLobby=${() => setShowConfirmExit(true)}
@@ -286,9 +283,10 @@ function App() {
 
       ${showConfirmExit && html`
         <${ConfirmModal}
-          title="End the session?"
-          body="Going back to the lobby will clear your session tally for this pair."
-          confirmLabel="End session"
+          title="Zakończyć sesję?"
+          body="Powrót do menu wyzeruje wynik tej sesji."
+          confirmLabel="Zakończ"
+          cancelLabel="Anuluj"
           onCancel=${() => setShowConfirmExit(false)}
           onConfirm=${() => { setShowConfirmExit(false); backToLobby(); }}
         />
@@ -301,28 +299,50 @@ function App() {
   `;
 }
 
-// ---------- Status pill ----------
+// ---------- Top bar ----------
 
-function StatusPill({ status }) {
+function TopBar({ status, phase }) {
   const label = {
-    idle: 'Waiting for peer',
-    connecting: 'Connecting…',
-    connected: 'Connected',
-    waiting: 'Reconnecting…',
-    disconnected: 'Disconnected',
+    idle: 'W sieci',
+    connecting: 'Łączenie',
+    connected: phase === 'lobby' ? 'Połączono' : 'Online',
+    waiting: 'Czekam',
+    disconnected: 'Rozłączono',
   }[status] || status;
 
   return html`
-    <div class="status-pill" data-status=${status}>
-      <span class="dot"></span>
-      <span>${label}</span>
+    <div class="topbar">
+      <div class="brand">
+        <span class="avatar">K</span>
+        <span>K·OŚCI</span>
+      </div>
+      <div class="status-pill" data-status=${status}>
+        <span class="dot"></span>
+        <span>${label}</span>
+      </div>
+    </div>
+  `;
+}
+
+// ---------- Decorative flourish ----------
+
+function Flourish() {
+  return html`
+    <div class="decoration" aria-hidden="true">
+      <svg viewBox="0 0 140 32" fill="none">
+        <path d="M2 22 C 20 2, 50 32, 70 12 S 120 22, 138 8"
+              stroke="#8b5a9f" stroke-width="1.2" stroke-linecap="round" fill="none" />
+        <circle cx="38" cy="15" r="2.2" fill="#e8b4d0" />
+        <circle cx="78" cy="12" r="2" fill="#e8b4d0" />
+        <circle cx="112" cy="16" r="2.4" fill="#e8b4d0" />
+      </svg>
     </div>
   `;
 }
 
 // ---------- Lobby ----------
 
-function Lobby({ role, selfId, status, onStart }) {
+function Lobby({ role, selfId, status, onStart, tally }) {
   const joinUrl = useMemo(() => {
     if (!selfId) return '';
     const base = `${location.origin}${location.pathname}`;
@@ -336,134 +356,184 @@ function Lobby({ role, selfId, status, onStart }) {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: 'Yahtzee',
-          text: "Let's play Yahtzee:",
+          title: 'K·OŚCI',
+          text: 'Zagrajmy w kości:',
           url: joinUrl,
         });
         return;
-      } catch (_) { /* fall back to clipboard */ }
+      } catch (_) {}
     }
+    await copyUrl();
+  };
+
+  const copyUrl = async () => {
     try {
       await navigator.clipboard.writeText(joinUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch (_) { /* last resort: do nothing */ }
+    } catch (_) {}
   };
 
   return html`
     <div class="lobby">
-      <div class="bento lobby-card">
-        <h1 class="title">Yahtzee <span class="mono">·</span> two-player</h1>
+      <${Flourish} />
+      <div class="kicker">
+        2 GRACZY<span class="dot-sep">·</span>P2P<span class="dot-sep">·</span>봄 WIOSNA
+      </div>
 
-        ${role === 'host' && html`
-          <p class="sub">Send this link to a friend. When they open it, the game starts.</p>
-          <div class="share-row">
-            <input class="share-url" readonly value=${joinUrl} onClick=${(e) => e.target.select()} />
-            <button class="btn primary" onClick=${smartShare} disabled=${!joinUrl}>
-              ${copied ? 'Copied!' : (navigator.share ? 'Share link' : 'Copy link')}
-            </button>
+      <div class="hero">
+        <h1>Rzuć<em>kośćmi.</em></h1>
+        <p>Zagraj ze znajomym. Bezpośrednio, bez konta, bez serwera. Wszystko między waszymi przeglądarkami.</p>
+      </div>
+
+      ${role === 'host' && html`
+        <div class="id-card">
+          <div class="label">Twój identyfikator</div>
+          <div class="label-sub">podaj go znajomemu</div>
+          <div class="id-row">
+            <div class="peer-id">${selfId || '—'}</div>
+            <div class="host-chip">GOSPODARZ</div>
           </div>
-          <div class="hint">${
-            status === 'connected'
-              ? html`<span class="ok">Opponent connected — ready when you are.</span>`
-              : status === 'waiting'
-                ? html`<span>Opponent disconnected — waiting for them to rejoin…</span>`
-                : html`<span>Generating link… waiting for opponent to join.</span>`
-          }</div>
-          <button class="btn start" onClick=${onStart} disabled=${status !== 'connected'}>
-            Start game
+          <div class="url-row">
+            <svg class="link-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
+            <input readonly value=${joinUrl} onClick=${(e) => e.target.select()} />
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="btn primary" onClick=${smartShare} disabled=${!joinUrl}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+            </svg>
+            <span>${navigator.share ? 'Udostępnij' : (copied ? 'Skopiowano' : 'Kopiuj')}</span>
+          </button>
+          <button class="btn ghost" onClick=${copyUrl} disabled=${!joinUrl}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+            <span>${copied ? 'Skopiowano' : 'Kopiuj'}</span>
+          </button>
+        </div>
+
+        ${status !== 'connected' ? html`
+          <div class="waiting-card">
+            <div class="spinner"></div>
+            <div>
+              <div class="wait-title">Czekam na przeciwnika…</div>
+              <div class="wait-sub">udostępnij link, żeby zacząć</div>
+            </div>
+          </div>
+        ` : html`
+          <button class="btn primary" onClick=${onStart}>
+            Rozpocznij grę
           </button>
         `}
+      `}
 
-        ${role === 'guest' && html`
-          <p class="sub">${
-            status === 'connecting' ? 'Connecting to host…' :
-            status === 'connected'  ? 'Connected. Waiting for host to start…' :
-            status === 'waiting'    ? 'Reconnecting…' :
-                                      'Connection failed. Ask your friend for a new link.'
-          }</p>
-          <div class="spinner" aria-hidden></div>
-        `}
-      </div>
+      ${role === 'guest' && html`
+        <div class="waiting-card">
+          <div class="spinner"></div>
+          <div>
+            <div class="wait-title">${
+              status === 'connecting' ? 'Łączenie z gospodarzem…' :
+              status === 'connected'  ? 'Czekam, aż gospodarz rozpocznie…' :
+              status === 'waiting'    ? 'Ponawiam połączenie…' :
+                                        'Połączenie nie powiodło się'
+            }</div>
+            <div class="wait-sub">${status === 'connected' ? 'zaraz zaczniemy' : 'poczekaj chwilę'}</div>
+          </div>
+        </div>
+      `}
+
+      ${(tally.self + tally.peer) > 0 && html`
+        <div class="kicker" style="text-align:left;padding-top:0.5rem">
+          Sesja <span class="dot-sep">·</span> ty ${tally.self} <span class="dot-sep">·</span> przeciwnik ${tally.peer}
+        </div>
+      `}
     </div>
   `;
 }
 
-// ---------- Board ----------
+// ---------- In-game layout ----------
 
-function Board({ state, rollingKey, onRoll, onToggleHold, onBank }) {
+function Game({ state, rollingKey, previewCategory, setPreviewCategory, onRoll, onToggleHold, onBank }) {
   const { game } = state;
+  const selfTotal = grandTotal(game.scorecards.self);
+  const peerTotal = grandTotal(game.scorecards.peer);
+  const interactive = game.turn === 'self' && game.phase === 'playing';
 
   return html`
-    <div class="board">
-      <div class="bento player-card self ${game.turn === 'self' ? 'active' : ''}">
-        <${PlayerHeader} label="You" total=${grandTotal(game.scorecards.self)} tally=${state.session.tally.self} active=${game.turn === 'self'} />
-        <${Scorecard}
-          side="self"
-          scorecard=${game.scorecards.self}
-          dice=${game.dice}
-          interactive=${game.turn === 'self' && game.rollNumber > 0 && game.phase === 'playing'}
-          lastBanked=${game.lastBankedCategory}
-          onBank=${onBank}
-        />
+    <div class="game">
+      <div class="game-header">
+        <div class="player-chip opp ${game.turn === 'peer' ? 'active' : ''}">
+          <div class="p-avatar">P</div>
+          <div>
+            <div class="p-name">Przeciwnik</div>
+            <div class="p-score">${peerTotal}</div>
+          </div>
+        </div>
+        <div class="round-chip">
+          <div class="r-label">Runda</div>
+          <div class="r-value">${String(game.round).padStart(2, '0')}<span class="of">/13</span></div>
+        </div>
+        <div class="player-chip you ${game.turn === 'self' ? 'active' : ''}">
+          <div style="text-align:right">
+            <div class="p-name">Ty</div>
+            <div class="p-score">${selfTotal}</div>
+          </div>
+          <div class="p-avatar">T</div>
+        </div>
       </div>
 
-      <div class="bento player-card peer ${game.turn === 'peer' ? 'active' : ''}">
-        <${PlayerHeader} label="Opponent" total=${grandTotal(game.scorecards.peer)} tally=${state.session.tally.peer} active=${game.turn === 'peer'} />
-        <${Scorecard}
-          side="peer"
-          scorecard=${game.scorecards.peer}
-          dice=${game.dice}
-          interactive=${false}
-          lastBanked=${game.lastBankedCategory}
-          onBank=${() => {}}
-        />
-      </div>
+      <div class="card dice-card">
+        <div class="turn-bar">
+          <div class="turn-label ${game.turn === 'self' ? '' : 'theirs'}">
+            ${game.turn === 'self' ? 'Twój ruch' : 'Ruch przeciwnika'}
+          </div>
+          <div class="roll-count">Rzut ${String(game.rollNumber).padStart(2, '0')}/${String(MAX_ROLLS).padStart(2, '0')}</div>
+        </div>
 
-      <div class="bento dice-area">
-        <${TurnBanner} turn=${game.turn} rollNumber=${game.rollNumber} />
         <${DiceTray}
           dice=${game.dice}
           rollingKey=${rollingKey}
-          interactive=${game.turn === 'self' && game.rollNumber > 0 && game.phase === 'playing'}
+          interactive=${interactive && game.rollNumber > 0}
           onToggleHold=${onToggleHold}
         />
+
         <button
           class="btn roll"
           onClick=${onRoll}
-          disabled=${game.turn !== 'self' || game.rollNumber >= MAX_ROLLS || game.phase !== 'playing'}
+          disabled=${!interactive || game.rollNumber >= MAX_ROLLS}
         >
-          ${game.rollNumber === 0 ? 'Roll' : `Roll (${MAX_ROLLS - game.rollNumber} left)`}
+          <span>
+            ${game.rollNumber === 0 ? 'Rzuć' : 'Rzuć ponownie'}
+          </span>
+          <span class="roll-left">${MAX_ROLLS - game.rollNumber} ${pluralRzut(MAX_ROLLS - game.rollNumber)}</span>
         </button>
       </div>
+
+      <${Scorecard}
+        game=${game}
+        previewCategory=${previewCategory}
+        setPreviewCategory=${setPreviewCategory}
+        interactive=${interactive && game.rollNumber > 0}
+        onBank=${onBank}
+      />
     </div>
   `;
 }
 
-function PlayerHeader({ label, total, tally, active }) {
-  return html`
-    <div class="player-header">
-      <div>
-        <div class="player-label">${label}</div>
-        <div class="player-total">${total}</div>
-      </div>
-      <div class="player-meta">
-        <div class="tally">wins: ${tally}</div>
-        ${active && html`<div class="turn-dot">turn</div>`}
-      </div>
-    </div>
-  `;
-}
-
-function TurnBanner({ turn, rollNumber }) {
-  const yours = turn === 'self';
-  return html`
-    <div class="turn-banner ${yours ? 'yours' : 'theirs'}">
-      ${yours
-        ? (rollNumber === 0 ? 'Your turn — roll to begin' : `Your turn — roll ${rollNumber}/${MAX_ROLLS}`)
-        : 'Waiting for opponent…'}
-    </div>
-  `;
+function pluralRzut(n) {
+  // 1 rzut · 2-4 rzuty · 0,5+ rzutów
+  if (n === 1) return 'RZUT';
+  if (n >= 2 && n <= 4) return 'RZUTY';
+  return 'RZUTÓW';
 }
 
 // ---------- Dice ----------
@@ -478,26 +548,28 @@ const DIE_FACES = {
 };
 
 function Die({ value, held, interactive, rollingKey, onClick }) {
-  // Randomize a tumble transform per roll
   const rot = useMemo(() => {
     const x = (Math.floor(Math.random() * 3) + 1) * 360;
     const y = (Math.floor(Math.random() * 3) + 1) * 360;
     return `rotateX(${x}deg) rotateY(${y}deg)`;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rollingKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rollingKey, value]);
 
   return html`
-    <button
-      class="die ${held ? 'held' : ''} ${interactive ? 'interactive' : 'locked'}"
-      onClick=${interactive ? onClick : undefined}
-      aria-label=${`Die showing ${value}${held ? ', held' : ''}`}
-    >
-      <div class="die-face" style=${{ transform: held ? 'none' : rot }}>
-        ${DIE_FACES[value].map(([r, c]) => html`
-          <span class="pip" style=${{ gridRow: r, gridColumn: c }}></span>
-        `)}
-      </div>
-    </button>
+    <div class="die-wrap">
+      <button
+        class="die ${held ? 'held' : ''} ${interactive ? '' : 'locked'}"
+        onClick=${interactive ? onClick : undefined}
+        aria-label=${`Kostka ${value}${held ? ', zablokowana' : ''}`}
+      >
+        <div class="die-face" style=${{ transform: held ? 'none' : rot }}>
+          ${DIE_FACES[value].map(([r, c], i) => html`
+            <span key=${i} class="pip" style=${{ gridRow: r, gridColumn: c }}></span>
+          `)}
+        </div>
+      </button>
+      <div class="hold-label ${held ? '' : 'empty'}">HOLD</div>
+    </div>
   `;
 }
 
@@ -520,100 +592,275 @@ function DiceTray({ dice, rollingKey, interactive, onToggleHold }) {
 
 // ---------- Scorecard ----------
 
-function Scorecard({ side, scorecard, dice, interactive, lastBanked, onBank }) {
-  const rows = CATEGORIES.map((cat) => {
-    const banked = scorecard[cat];
+function Scorecard({ game, previewCategory, setPreviewCategory, interactive, onBank }) {
+  const sc = game.scorecards.self;
+  const upperSub = upperSubtotal(sc);
+  const uBonus = upperBonus(sc);
+  const yBonusPts = (sc.yahtzeeBonusCount || 0) * 100;
+  const grand = grandTotal(sc);
+
+  const renderRow = (cat) => {
+    const banked = sc[cat];
     const isBanked = banked !== null;
-    const preview = isBanked ? null : scoreCategory(dice, cat);
+    const preview = isBanked ? null : scoreCategory(game.dice, cat);
+    const isSelected = previewCategory === cat;
     const wouldGlow = !isBanked && interactive && preview > 0;
-    const flash = lastBanked === cat;
+
+    const onClick = () => {
+      if (isBanked || !interactive) return;
+      if (!isSelected) {
+        setPreviewCategory(cat);
+      } else {
+        onBank(cat);
+      }
+    };
+
+    const flash = game.lastBankedCategory === cat;
+
     return html`
-      <button
-        class="row ${isBanked ? 'banked' : 'open'} ${wouldGlow ? 'glow' : ''} ${flash ? 'flash' : ''}"
-        onClick=${interactive && !isBanked ? () => onBank(cat) : undefined}
-        disabled=${!interactive || isBanked}
+      <div
+        key=${cat}
+        class="sc-row ${isBanked ? 'banked' : 'open'} ${wouldGlow && !isSelected ? 'tap' : ''} ${isSelected ? 'selected selectable' : ''} ${!isBanked && interactive ? 'selectable' : ''} ${flash ? 'flash' : ''}"
+        onClick=${onClick}
+        role="button"
+        tabindex=${!isBanked && interactive ? '0' : undefined}
       >
-        <span class="row-label">${CATEGORY_LABELS[cat]}</span>
-        <span class="row-val">
-          ${isBanked ? banked : (interactive ? preview : '')}
-        </span>
-      </button>
+        <div>
+          <div class="r-label">${CATEGORY_LABELS[cat].en}</div>
+          <div class="r-sub">${CATEGORY_LABELS[cat].pl}</div>
+        </div>
+        <div class="r-val">
+          ${isBanked
+            ? banked
+            : wouldGlow
+              ? html`<span class="r-chip">+${preview}</span><span class="r-tap">dotknij</span>`
+              : interactive
+                ? html`<span class="r-tap" style="color:var(--muted-soft)">—</span>`
+                : ''
+          }
+        </div>
+
+        ${isSelected && !isBanked && interactive && html`
+          <div class="sc-preview" onClick=${(e) => e.stopPropagation()}>
+            <div class="pv-head">Podgląd · Preview</div>
+            <div class="pv-cat">${CATEGORY_LABELS[cat].en} · ${CATEGORY_LABELS[cat].pl}</div>
+            <div class="pv-dice">
+              ${scoringDiceFor(cat, game.dice).map((v, i) => html`<div key=${i} class="pv-die">${v}</div>`)}
+            </div>
+            <div class="pv-separator"></div>
+            <div class="pv-bank">
+              <span>Zapisz za</span>
+              <span class="pts">+${preview}</span>
+            </div>
+            <div style="display:flex;gap:0.5rem;margin-top:0.6rem">
+              <button class="btn ghost" style="flex:1;padding:0.55rem;font-size:0.85rem" onClick=${(e) => { e.stopPropagation(); setPreviewCategory(null); }}>Anuluj</button>
+              <button class="btn primary" style="flex:1;padding:0.55rem;font-size:0.85rem" onClick=${(e) => { e.stopPropagation(); onBank(cat); }}>Zapisz +${preview}</button>
+            </div>
+          </div>
+        `}
+      </div>
     `;
-  });
-
-  const uSub = upperSubtotal(scorecard);
-  const uBonus = upperBonus(scorecard);
-  const grand = grandTotal(scorecard);
-  const yBonus = (scorecard.yahtzeeBonusCount || 0) * 100;
+  };
 
   return html`
-    <div class="scorecard ${side}">
-      ${rows}
-      <div class="subrow">
-        <span>Upper (${uSub}/${UPPER_BONUS_THRESHOLD})</span>
-        <span>Bonus ${uBonus}</span>
-      </div>
-      ${yBonus > 0 && html`
-        <div class="subrow">
-          <span>Yahtzee bonus</span>
-          <span>+${yBonus}</span>
+    <div class="card scorecard-card">
+      <div class="sc-header">
+        <div>
+          <div class="sc-title">Karta wyników</div>
+          <div class="sc-sub">scorecard</div>
         </div>
-      `}
-      <div class="subrow total">
-        <span>Total</span>
-        <span>${grand}</span>
+        <div class="sc-upper">
+          Góra <strong>${upperSub}</strong>/63
+        </div>
+      </div>
+
+      <div class="sc-rows">
+        ${UPPER.map(renderRow)}
+      </div>
+
+      <div class="sc-divider">Dół · Lower</div>
+
+      <div class="sc-rows">
+        ${CATEGORIES.filter((c) => !UPPER.includes(c)).map(renderRow)}
+      </div>
+
+      <div class="sc-totals">
+        <div class="lbl">Góra</div>
+        <div class="val">${upperSub}</div>
+        <div class="lbl">Bonus</div>
+        <div class="val">${uBonus}</div>
+        ${yBonusPts > 0 && html`
+          <div class="lbl">Premia Yahtzee</div>
+          <div class="val">+${yBonusPts}</div>
+        `}
+        <div class="lbl grand">Suma</div>
+        <div class="val grand">${grand}</div>
       </div>
     </div>
   `;
 }
 
-// ---------- Overlays ----------
+// Returns the dice values that contribute to a category's score (for preview).
+function scoringDiceFor(category, dice) {
+  const vals = dice.map((d) => d.value);
+  switch (category) {
+    case 'aces':   return vals.filter((v) => v === 1);
+    case 'twos':   return vals.filter((v) => v === 2);
+    case 'threes': return vals.filter((v) => v === 3);
+    case 'fours':  return vals.filter((v) => v === 4);
+    case 'fives':  return vals.filter((v) => v === 5);
+    case 'sixes':  return vals.filter((v) => v === 6);
+    default:       return vals.slice().sort((a, b) => a - b);
+  }
+}
 
-function GameOverOverlay({ state, onRematch, onBackToLobby }) {
-  const selfTotal = grandTotal(state.game.scorecards.self);
-  const peerTotal = grandTotal(state.game.scorecards.peer);
+// ---------- Game Over ----------
+
+function GameOver({ state, onRematch, onBackToLobby }) {
+  const sSelf = state.game.scorecards.self;
+  const sPeer = state.game.scorecards.peer;
+  const selfTotal = grandTotal(sSelf);
+  const peerTotal = grandTotal(sPeer);
   const outcome = selfTotal > peerTotal ? 'win' : selfTotal < peerTotal ? 'loss' : 'tie';
-  const heading = outcome === 'win' ? 'You win!' : outcome === 'loss' ? 'You lost.' : "It's a tie!";
+  const diff = Math.abs(selfTotal - peerTotal);
+
+  const outcomeLabel = outcome === 'win' ? 'WYGRANA · WIN · 승리'
+                     : outcome === 'loss' ? 'PRZEGRANA · LOSS · 패배'
+                     : 'REMIS · TIE';
+  const subline = outcome === 'win' ? html`Pokonałeś przeciwnika o <span class="plus">+${diff}</span>`
+                 : outcome === 'loss' ? html`Przegrałeś <span class="plus">−${diff}</span>`
+                 : 'Remis — równa walka.';
+
+  const selfUpper = upperSubtotal(sSelf);
+  const peerUpper = upperSubtotal(sPeer);
+  const selfUB = upperBonus(sSelf);
+  const selfLower = selfTotal - selfUpper - selfUB;
+  const peerLower = peerTotal - peerUpper - upperBonus(sPeer);
+  const lowerMax = Math.max(selfLower, peerLower, 1);
+  const upperMax = Math.max(selfUpper, peerUpper, 63);
+
   return html`
-    <div class="overlay gameover ${outcome}">
-      <div class="bento overlay-card">
-        <h2>${heading}</h2>
-        <div class="final">
-          <div><span>You</span><strong>${selfTotal}</strong></div>
-          <div><span>Opponent</span><strong>${peerTotal}</strong></div>
+    <div class="game-over">
+      <${Flourish} />
+      <div class="go-outcome ${outcome}">
+        ${outcomeLabel.split(' · ').map((t, i, arr) => html`
+          <span key=${i}>${t}</span>${i < arr.length - 1 ? html`<span class="sep">·</span>` : ''}
+        `)}
+      </div>
+      <div class="go-score ${outcome}">${selfTotal}</div>
+      <div class="go-sub">${subline}</div>
+
+      <div class="vs-card">
+        <div class="vs-row">
+          <div class="vs-name" style="text-align:left"><strong>Ty</strong></div>
+          <div class="vs-vs">vs</div>
+          <div class="vs-name" style="text-align:right"><strong>Przeciwnik</strong></div>
         </div>
-        <div class="final-tally">Session: you ${state.session.tally.self} — opponent ${state.session.tally.peer}</div>
-        <div class="cta">
-          <button class="btn primary" onClick=${onRematch}>Rematch</button>
-          <button class="btn ghost" onClick=${onBackToLobby}>Back to lobby</button>
+        <div class="vs-totals">
+          <div class="vs-total you">${selfTotal}</div>
+          <div></div>
+          <div class="vs-total opp">${peerTotal}</div>
         </div>
+        <div class="vs-labels">
+          <div class="winner-label">${outcome === 'win' ? 'Zwycięzca · Winner' : ''}</div>
+          <div></div>
+          <div class="runner-label">${outcome === 'loss' ? 'Zwycięzca · Winner' : ''}</div>
+        </div>
+
+        <div class="compare-block">
+          <div class="compare-title">
+            <span>Góra · Upper</span>
+            ${selfUB > 0 && html`<span class="bonus">+35 BONUS</span>`}
+          </div>
+          <div class="compare-bar self">
+            <div class="bar"><div class="fill" style=${{ width: `${(selfUpper / upperMax) * 100}%` }}></div></div>
+            <div class="num">${selfUpper}</div>
+          </div>
+          <div class="compare-bar opp">
+            <div class="bar"><div class="fill" style=${{ width: `${(peerUpper / upperMax) * 100}%` }}></div></div>
+            <div class="num">${peerUpper}</div>
+          </div>
+        </div>
+
+        <div class="compare-block">
+          <div class="compare-title"><span>Dół · Lower</span></div>
+          <div class="compare-bar self">
+            <div class="bar"><div class="fill" style=${{ width: `${(selfLower / lowerMax) * 100}%` }}></div></div>
+            <div class="num">${selfLower}</div>
+          </div>
+          <div class="compare-bar opp">
+            <div class="bar"><div class="fill" style=${{ width: `${(peerLower / lowerMax) * 100}%` }}></div></div>
+            <div class="num">${peerLower}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card cat-grid-card">
+        <div class="compare-title" style="margin-bottom:0">
+          <span>Rozkład punktów</span>
+          <span>Breakdown</span>
+        </div>
+        <div class="cat-grid">
+          ${CATEGORIES.filter((c) => !UPPER.includes(c)).map((cat) => {
+            const v = sSelf[cat] ?? 0;
+            const p = sPeer[cat] ?? 0;
+            const highlight = cat === 'yahtzee' && v >= 50;
+            return html`
+              <div key=${cat} class="cat-cell ${highlight ? 'highlight' : ''}">
+                ${highlight
+                  ? html`<div class="c-label">Yahtzee</div>`
+                  : html`
+                      <div class="c-label">${CATEGORY_LABELS[cat].en}</div>
+                      <div class="c-sub">${CATEGORY_LABELS[cat].pl}</div>
+                    `}
+                <div class="c-vals">
+                  <span class="c-self">${v}</span>
+                  <span class="c-vs">vs</span>
+                  <span class="c-opp">${p}</span>
+                </div>
+              </div>
+            `;
+          })}
+        </div>
+      </div>
+
+      <div class="kicker" style="text-align:center;margin-top:0.5rem">
+        Sesja <span class="dot-sep">·</span> ty ${state.session.tally.self} <span class="dot-sep">·</span> przeciwnik ${state.session.tally.peer}
+      </div>
+
+      <div class="actions" style="margin-top:0.5rem">
+        <button class="btn primary" onClick=${onRematch}>Rewanż</button>
+        <button class="btn ghost" onClick=${onBackToLobby}>Do menu</button>
       </div>
     </div>
   `;
 }
+
+// ---------- Disconnect / confirm overlays ----------
 
 function DisconnectOverlay({ seconds, onGiveUp }) {
   return html`
     <div class="overlay disconnect">
-      <div class="bento overlay-card">
-        <h2>Peer disconnected</h2>
-        <p>Waiting <strong>${seconds}s</strong> for reconnect…</p>
+      <div class="overlay-card">
+        <h2>Przeciwnik się rozłączył</h2>
+        <p style="color:var(--muted)">Czekam na powrót…</p>
+        <div class="count">${seconds}s</div>
         <div class="cta">
-          <button class="btn ghost" onClick=${onGiveUp}>Give up</button>
+          <button class="btn ghost" onClick=${onGiveUp}>Zakończ grę</button>
         </div>
       </div>
     </div>
   `;
 }
 
-function ConfirmModal({ title, body, confirmLabel, onCancel, onConfirm }) {
+function ConfirmModal({ title, body, confirmLabel, cancelLabel, onCancel, onConfirm }) {
   return html`
     <div class="overlay confirm">
-      <div class="bento overlay-card small">
+      <div class="overlay-card small">
         <h3>${title}</h3>
-        <p>${body}</p>
+        <p style="color:var(--muted)">${body}</p>
         <div class="cta">
-          <button class="btn ghost" onClick=${onCancel}>Cancel</button>
+          <button class="btn ghost" onClick=${onCancel}>${cancelLabel || 'Anuluj'}</button>
           <button class="btn danger" onClick=${onConfirm}>${confirmLabel}</button>
         </div>
       </div>
@@ -624,7 +871,6 @@ function ConfirmModal({ title, body, confirmLabel, onCancel, onConfirm }) {
 // ---------- Boot ----------
 
 if (typeof window !== 'undefined') {
-  // Register service worker (non-blocking)
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }

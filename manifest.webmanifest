@@ -1,13 +1,14 @@
 {
-  "name": "Yahtzee · two-player",
-  "short_name": "Yahtzee",
-  "description": "Peer-to-peer two-player Yahtzee. Share a link and roll.",
+  "name": "K·OŚCI",
+  "short_name": "K·OŚCI",
+  "description": "Gra w kości dla dwojga. Bezpośrednio, bez konta, bez serwera.",
+  "lang": "pl",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0e1220",
-  "theme_color": "#0e1220",
+  "background_color": "#fbeaec",
+  "theme_color": "#f8e5e8",
   "icons": [
     {
       "src": "./icons/icon.svg",

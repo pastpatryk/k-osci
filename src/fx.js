@@ -24,8 +24,8 @@ export const haptics = {
   win() { vibrate([60, 50, 60, 50, 120]); },
 };
 
-const INDIGO_PALETTE = [
-  '#7c5cff', '#b48bff', '#60a5fa', '#f0abfc', '#ffffff',
+const SAKURA_PALETTE = [
+  '#b288d4', '#d9a6e8', '#f5cddb', '#e8b4d0', '#ffffff', '#8b5a9f',
 ];
 
 export function burstConfetti(origin = { x: 0.5, y: 0.5 }) {
@@ -35,7 +35,7 @@ export function burstConfetti(origin = { x: 0.5, y: 0.5 }) {
     spread: 70,
     startVelocity: 30,
     origin,
-    colors: INDIGO_PALETTE,
+    colors: SAKURA_PALETTE,
     zIndex: 9999,
   });
 }
@@ -50,7 +50,7 @@ export function stormConfetti() {
       angle: 60,
       spread: 55,
       origin: { x: 0, y: 0.8 },
-      colors: INDIGO_PALETTE,
+      colors: SAKURA_PALETTE,
       zIndex: 9999,
     });
     confetti({
@@ -58,7 +58,7 @@ export function stormConfetti() {
       angle: 120,
       spread: 55,
       origin: { x: 1, y: 0.8 },
-      colors: INDIGO_PALETTE,
+      colors: SAKURA_PALETTE,
       zIndex: 9999,
     });
     if (Date.now() < end) requestAnimationFrame(frame);
