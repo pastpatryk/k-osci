@@ -1,0 +1,19 @@
+{
+  "name": "Yahtzee · two-player",
+  "short_name": "Yahtzee",
+  "description": "Peer-to-peer two-player Yahtzee. Share a link and roll.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0e1220",
+  "theme_color": "#0e1220",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
