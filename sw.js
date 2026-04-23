@@ -1,7 +1,7 @@
 // Minimal service worker: cache the app shell so the page loads offline.
 // Gameplay still requires network for PeerJS signalling.
 
-const CACHE = 'kosci-v2';
+const CACHE = 'kosci-v3';
 const SHELL = [
   './',
   './index.html',

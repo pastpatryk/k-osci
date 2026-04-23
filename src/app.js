@@ -26,19 +26,19 @@ const html = htm.bind(h);
 // ---------- Polish labels ----------
 
 const CATEGORY_LABELS = {
-  aces:          { pl: 'Jedynki',     en: 'Aces' },
-  twos:          { pl: 'Dwójki',      en: 'Twos' },
-  threes:        { pl: 'Trójki',      en: 'Threes' },
-  fours:         { pl: 'Czwórki',     en: 'Fours' },
-  fives:         { pl: 'Piątki',      en: 'Fives' },
-  sixes:         { pl: 'Szóstki',     en: 'Sixes' },
-  threeOfAKind:  { pl: 'Trójka',      en: '3 of a Kind' },
-  fourOfAKind:   { pl: 'Kareta',      en: '4 of a Kind' },
-  fullHouse:     { pl: 'Full',        en: 'Full House' },
-  smallStraight: { pl: 'Mały strit',  en: 'Sm. Straight' },
-  largeStraight: { pl: 'Duży strit',  en: 'Lg. Straight' },
-  yahtzee:       { pl: 'Yahtzee',     en: 'Yahtzee' },
-  chance:        { pl: 'Szansa',      en: 'Chance' },
+  aces:          'Jedynki',
+  twos:          'Dwójki',
+  threes:        'Trójki',
+  fours:         'Czwórki',
+  fives:         'Piątki',
+  sixes:         'Szóstki',
+  threeOfAKind:  'Trójka',
+  fourOfAKind:   'Kareta',
+  fullHouse:     'Full',
+  smallStraight: 'Mały strit',
+  largeStraight: 'Duży strit',
+  yahtzee:       'Generał',
+  chance:        'Szansa',
 };
 
 const UPPER = ['aces', 'twos', 'threes', 'fours', 'fives', 'sixes'];
@@ -378,7 +378,7 @@ function Lobby({ role, selfId, status, onStart, tally }) {
     <div class="lobby">
       <${Flourish} />
       <div class="kicker">
-        2 GRACZY<span class="dot-sep">·</span>P2P<span class="dot-sep">·</span>봄 WIOSNA
+        2 GRACZY<span class="dot-sep">·</span>P2P<span class="dot-sep">·</span>WIOSNA
       </div>
 
       <div class="hero">
@@ -452,7 +452,7 @@ function Lobby({ role, selfId, status, onStart, tally }) {
       `}
 
       ${(tally.self + tally.peer) > 0 && html`
-        <div class="kicker" style="text-align:left;padding-top:0.5rem">
+        <div class="kicker" style="text-align:left">
           Sesja <span class="dot-sep">·</span> ty ${tally.self} <span class="dot-sep">·</span> przeciwnik ${tally.peer}
         </div>
       `}
@@ -568,7 +568,7 @@ function Die({ value, held, interactive, rollingKey, onClick }) {
           `)}
         </div>
       </button>
-      <div class="hold-label ${held ? '' : 'empty'}">HOLD</div>
+      <div class="hold-label ${held ? '' : 'empty'}">TRZYMAJ</div>
     </div>
   `;
 }
@@ -626,8 +626,7 @@ function Scorecard({ game, previewCategory, setPreviewCategory, interactive, onB
         tabindex=${!isBanked && interactive ? '0' : undefined}
       >
         <div>
-          <div class="r-label">${CATEGORY_LABELS[cat].en}</div>
-          <div class="r-sub">${CATEGORY_LABELS[cat].pl}</div>
+          <div class="r-label">${CATEGORY_LABELS[cat]}</div>
         </div>
         <div class="r-val">
           ${isBanked
@@ -642,8 +641,8 @@ function Scorecard({ game, previewCategory, setPreviewCategory, interactive, onB
 
         ${isSelected && !isBanked && interactive && html`
           <div class="sc-preview" onClick=${(e) => e.stopPropagation()}>
-            <div class="pv-head">Podgląd · Preview</div>
-            <div class="pv-cat">${CATEGORY_LABELS[cat].en} · ${CATEGORY_LABELS[cat].pl}</div>
+            <div class="pv-head">Podgląd</div>
+            <div class="pv-cat">${CATEGORY_LABELS[cat]}</div>
             <div class="pv-dice">
               ${scoringDiceFor(cat, game.dice).map((v, i) => html`<div key=${i} class="pv-die">${v}</div>`)}
             </div>
@@ -667,7 +666,6 @@ function Scorecard({ game, previewCategory, setPreviewCategory, interactive, onB
       <div class="sc-header">
         <div>
           <div class="sc-title">Karta wyników</div>
-          <div class="sc-sub">scorecard</div>
         </div>
         <div class="sc-upper">
           Góra <strong>${upperSub}</strong>/63
@@ -678,7 +676,7 @@ function Scorecard({ game, previewCategory, setPreviewCategory, interactive, onB
         ${UPPER.map(renderRow)}
       </div>
 
-      <div class="sc-divider">Dół · Lower</div>
+      <div class="sc-divider">Dół</div>
 
       <div class="sc-rows">
         ${CATEGORIES.filter((c) => !UPPER.includes(c)).map(renderRow)}
@@ -724,9 +722,9 @@ function GameOver({ state, onRematch, onBackToLobby }) {
   const outcome = selfTotal > peerTotal ? 'win' : selfTotal < peerTotal ? 'loss' : 'tie';
   const diff = Math.abs(selfTotal - peerTotal);
 
-  const outcomeLabel = outcome === 'win' ? 'WYGRANA · WIN · 승리'
-                     : outcome === 'loss' ? 'PRZEGRANA · LOSS · 패배'
-                     : 'REMIS · TIE';
+  const outcomeLabel = outcome === 'win' ? 'WYGRANA'
+                     : outcome === 'loss' ? 'PRZEGRANA'
+                     : 'REMIS';
   const subline = outcome === 'win' ? html`Pokonałeś przeciwnika o <span class="plus">+${diff}</span>`
                  : outcome === 'loss' ? html`Przegrałeś <span class="plus">−${diff}</span>`
                  : 'Remis — równa walka.';
@@ -742,11 +740,7 @@ function GameOver({ state, onRematch, onBackToLobby }) {
   return html`
     <div class="game-over">
       <${Flourish} />
-      <div class="go-outcome ${outcome}">
-        ${outcomeLabel.split(' · ').map((t, i, arr) => html`
-          <span key=${i}>${t}</span>${i < arr.length - 1 ? html`<span class="sep">·</span>` : ''}
-        `)}
-      </div>
+      <div class="go-outcome ${outcome}">${outcomeLabel}</div>
       <div class="go-score ${outcome}">${selfTotal}</div>
       <div class="go-sub">${subline}</div>
 
@@ -762,14 +756,14 @@ function GameOver({ state, onRematch, onBackToLobby }) {
           <div class="vs-total opp">${peerTotal}</div>
         </div>
         <div class="vs-labels">
-          <div class="winner-label">${outcome === 'win' ? 'Zwycięzca · Winner' : ''}</div>
+          <div class="winner-label">${outcome === 'win' ? 'Zwycięzca' : ''}</div>
           <div></div>
-          <div class="runner-label">${outcome === 'loss' ? 'Zwycięzca · Winner' : ''}</div>
+          <div class="runner-label">${outcome === 'loss' ? 'Zwycięzca' : ''}</div>
         </div>
 
         <div class="compare-block">
           <div class="compare-title">
-            <span>Góra · Upper</span>
+            <span>Góra</span>
             ${selfUB > 0 && html`<span class="bonus">+35 BONUS</span>`}
           </div>
           <div class="compare-bar self">
@@ -783,7 +777,7 @@ function GameOver({ state, onRematch, onBackToLobby }) {
         </div>
 
         <div class="compare-block">
-          <div class="compare-title"><span>Dół · Lower</span></div>
+          <div class="compare-title"><span>Dół</span></div>
           <div class="compare-bar self">
             <div class="bar"><div class="fill" style=${{ width: `${(selfLower / lowerMax) * 100}%` }}></div></div>
             <div class="num">${selfLower}</div>
@@ -798,7 +792,6 @@ function GameOver({ state, onRematch, onBackToLobby }) {
       <div class="card cat-grid-card">
         <div class="compare-title" style="margin-bottom:0">
           <span>Rozkład punktów</span>
-          <span>Breakdown</span>
         </div>
         <div class="cat-grid">
           ${CATEGORIES.filter((c) => !UPPER.includes(c)).map((cat) => {
@@ -808,11 +801,8 @@ function GameOver({ state, onRematch, onBackToLobby }) {
             return html`
               <div key=${cat} class="cat-cell ${highlight ? 'highlight' : ''}">
                 ${highlight
-                  ? html`<div class="c-label">Yahtzee</div>`
-                  : html`
-                      <div class="c-label">${CATEGORY_LABELS[cat].en}</div>
-                      <div class="c-sub">${CATEGORY_LABELS[cat].pl}</div>
-                    `}
+                  ? html`<div class="c-label">Generał</div>`
+                  : html`<div class="c-label">${CATEGORY_LABELS[cat]}</div>`}
                 <div class="c-vals">
                   <span class="c-self">${v}</span>
                   <span class="c-vs">vs</span>
@@ -824,11 +814,11 @@ function GameOver({ state, onRematch, onBackToLobby }) {
         </div>
       </div>
 
-      <div class="kicker" style="text-align:center;margin-top:0.5rem">
+      <div class="kicker" style="text-align:center">
         Sesja <span class="dot-sep">·</span> ty ${state.session.tally.self} <span class="dot-sep">·</span> przeciwnik ${state.session.tally.peer}
       </div>
 
-      <div class="actions" style="margin-top:0.5rem">
+      <div class="actions">
         <button class="btn primary" onClick=${onRematch}>Rewanż</button>
         <button class="btn ghost" onClick=${onBackToLobby}>Do menu</button>
       </div>
