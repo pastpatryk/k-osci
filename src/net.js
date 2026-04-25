@@ -4,14 +4,15 @@
 import { Peer } from 'https://esm.sh/peerjs@1.5.4?bundle';
 
 // --- Friendly peer ID generation ---
-// Creates short, memorable IDs like "SAKURA-914" to replace UUIDs in share URLs.
+// Creates short, memorable IDs like "WISNIA-914" to replace UUIDs in share URLs.
 const FRIENDLY_WORDS = [
-  'SAKURA', 'HANAMI', 'BONSAI', 'KAEDE', 'TSUBAKI', 'KIKYO',
-  'AZALEA', 'PEONY', 'LILAC', 'MAGNOLIA', 'IRIS', 'JASMINE',
-  'BAMBOO', 'WILLOW', 'MAPLE', 'CHERRY', 'PLUM', 'GINKGO',
-  'KOI', 'CRANE', 'HERON', 'SWALLOW', 'SPARROW', 'FINCH',
-  'DAWN', 'DUSK', 'MIST', 'CLOUD', 'SNOW', 'RAIN',
-  'STONE', 'RIVER', 'FOREST', 'MEADOW', 'GARDEN', 'PAGODA',
+  'PEONIA', 'LILIA', 'IRYS', 'JASMIN', 'ROZA', 'TULIPAN',
+  'MAGNOLIA', 'FIOLEK', 'MAK', 'BEZ', 'BRZOZA', 'KLON',
+  'BAMBUS', 'BUK', 'LIPA', 'WIERZBA', 'WISNIA', 'JABLON',
+  'SOSNA', 'LAS', 'LAKA', 'OGROD', 'RZEKA', 'KAMIEN',
+  'MGLA', 'CHMURA', 'SNIEG', 'DESZCZ', 'SWIT', 'WIATR',
+  'ROSA', 'SLONCE', 'GWIAZDA', 'PLATEK', 'KWIAT', 'LISC',
+  'ZURAW', 'BOCIAN', 'WROBEL', 'JASKOLKA',
 ];
 
 function generateFriendlyId() {

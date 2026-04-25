@@ -1,7 +1,7 @@
 // Minimal service worker: cache the app shell so the page loads offline.
 // Gameplay still requires network for PeerJS signalling.
 
-const CACHE = 'kosci-v3';
+const CACHE = 'kosci-v6';
 const SHELL = [
   './',
   './index.html',
@@ -11,6 +11,17 @@ const SHELL = [
   './src/game.js',
   './src/net.js',
   './src/fx.js',
+  './src/styles.css',
+  './src/components/html.js',
+  './src/components/labels.js',
+  './src/components/TopBar.js',
+  './src/components/Flourish.js',
+  './src/components/Lobby.js',
+  './src/components/Dice.js',
+  './src/components/Game.js',
+  './src/components/Scorecard.js',
+  './src/components/GameOver.js',
+  './src/components/Overlays.js',
 ];
 
 self.addEventListener('install', (event) => {
