@@ -2,7 +2,7 @@ import { useMemo, useState } from 'https://esm.sh/preact@10.19.3/hooks';
 import { html } from './html.js';
 import { Flourish } from './Flourish.js';
 
-export function Lobby({ role, selfId, status, onStart, tally }) {
+export function Lobby({ role, selfId, status, started, selfName, peerName, onSetName, onCreate, onCancelRoom, onStart, tally }) {
   const joinUrl = useMemo(() => {
     if (!selfId) return '';
     const base = `${location.origin}${location.pathname}`;
@@ -38,15 +38,36 @@ export function Lobby({ role, selfId, status, onStart, tally }) {
     <div class="lobby">
       <${Flourish} />
       <div class="kicker">
-        2 GRACZY<span class="dot-sep">·</span>P2P<span class="dot-sep">·</span>WIOSNA
+        2 graczy<span class="dot-sep">·</span>WERKA STYLE
       </div>
 
       <div class="hero">
         <h1>Rzuć<em>kośćmi.</em></h1>
-        <p>Zagraj ze znajomym. Bezpośrednio, bez konta, bez serwera. Wszystko między waszymi przeglądarkami.</p>
+        <p>Kogo dziś ograsz?</p>
       </div>
 
-      ${role === 'host' && html`
+      <div class="name-field">
+        <label for="own-name">Twoje imię</label>
+        <input
+          id="own-name"
+          type="text"
+          maxlength="20"
+          placeholder="np. Werka"
+          value=${selfName}
+          onInput=${(e) => onSetName(e.target.value)}
+        />
+      </div>
+
+      ${role === 'host' && !started && html`
+        <button class="btn primary" onClick=${onCreate}>
+          Stwórz pokój
+        </button>
+        <div class="kicker" style="text-align:center">
+          Klik — i lecimy.
+        </div>
+      `}
+
+      ${role === 'host' && started && html`
         <div class="id-card">
           <div class="label">Twój identyfikator</div>
           <div class="label-sub">podaj go znajomemu</div>
@@ -91,12 +112,25 @@ export function Lobby({ role, selfId, status, onStart, tally }) {
           </div>
         ` : html`
           <button class="btn primary" onClick=${onStart}>
-            Rozpocznij grę
+            Rozpocznij grę${peerName ? ` z ${peerName}` : ''}
           </button>
         `}
+
+        <button class="btn ghost" onClick=${onCancelRoom}>
+          Zamknij pokój
+        </button>
       `}
 
-      ${role === 'guest' && html`
+      ${role === 'guest' && !started && html`
+        <button class="btn primary" onClick=${onCreate}>
+          Dołącz${selfName ? ` jako ${selfName}` : ''}
+        </button>
+        <div class="kicker" style="text-align:center">
+          Klik — i gramy.
+        </div>
+      `}
+
+      ${role === 'guest' && started && html`
         <div class="waiting-card">
           <div class="spinner"></div>
           <div>

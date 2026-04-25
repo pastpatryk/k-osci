@@ -2,7 +2,7 @@ import { html } from './html.js';
 
 export function TopBar({ status, phase }) {
   const label = {
-    idle: 'W sieci',
+    idle: 'Połączony',
     connecting: 'Łączenie',
     connected: phase === 'lobby' ? 'Połączono' : 'Online',
     waiting: 'Czekam',

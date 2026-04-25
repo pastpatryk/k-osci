@@ -150,6 +150,8 @@ export function initialState(role = 'host') {
       status: 'idle',
       tally: { self: 0, peer: 0 },
       gameNumber: 1,
+      selfName: '',
+      peerName: '',
     },
     game: {
       phase: 'lobby',
@@ -196,6 +198,12 @@ export function reducer(state, action) {
   switch (action.type) {
     case 'SET_SELF_ID':
       return { ...state, session: { ...state.session, selfId: action.payload.selfId } };
+
+    case 'SET_NAME': {
+      const name = (action.payload?.name || '').slice(0, 20);
+      const key = action.remote ? 'peerName' : 'selfName';
+      return { ...state, session: { ...state.session, [key]: name } };
+    }
 
     case 'SET_CONNECTION': {
       const { peerId, status } = action.payload;

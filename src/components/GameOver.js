@@ -3,7 +3,9 @@ import { CATEGORIES, upperSubtotal, upperBonus, grandTotal } from '../game.js';
 import { CATEGORY_LABELS, UPPER } from './labels.js';
 import { Flourish } from './Flourish.js';
 
-export function GameOver({ state, onRematch, onBackToLobby }) {
+export function GameOver({ state, selfName, peerName, onRematch, onBackToLobby }) {
+  const selfDisplay = selfName || 'Ty';
+  const peerDisplay = peerName || 'Przeciwnik';
   const sSelf = state.game.scorecards.self;
   const sPeer = state.game.scorecards.peer;
   const selfTotal = grandTotal(sSelf);
@@ -35,9 +37,9 @@ export function GameOver({ state, onRematch, onBackToLobby }) {
 
       <div class="vs-card">
         <div class="vs-row">
-          <div class="vs-name" style="text-align:left"><strong>Ty</strong></div>
+          <div class="vs-name" style="text-align:left"><strong>${selfDisplay}</strong></div>
           <div class="vs-vs">vs</div>
-          <div class="vs-name" style="text-align:right"><strong>Przeciwnik</strong></div>
+          <div class="vs-name" style="text-align:right"><strong>${peerDisplay}</strong></div>
         </div>
         <div class="vs-totals">
           <div class="vs-total you">${selfTotal}</div>

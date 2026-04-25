@@ -1,22 +1,28 @@
+import { useState } from 'https://esm.sh/preact@10.19.3/hooks';
 import { html } from './html.js';
 import { MAX_ROLLS, grandTotal } from '../game.js';
 import { pluralRzut } from './labels.js';
 import { DiceTray } from './Dice.js';
 import { Scorecard } from './Scorecard.js';
 
-export function Game({ state, rollingKey, previewCategory, setPreviewCategory, onRoll, onToggleHold, onBank }) {
+export function Game({ state, rollingKey, previewCategory, setPreviewCategory, selfName, peerName, onSetName, onRoll, onToggleHold, onBank, onEndGame }) {
+  const [editingName, setEditingName] = useState(false);
   const { game } = state;
   const selfTotal = grandTotal(game.scorecards.self);
   const peerTotal = grandTotal(game.scorecards.peer);
   const interactive = game.turn === 'self' && game.phase === 'playing';
+  const selfDisplay = selfName || 'Ty';
+  const peerDisplay = peerName || 'Przeciwnik';
+  const selfInitial = (selfName || 'T').trim().charAt(0).toUpperCase() || 'T';
+  const peerInitial = (peerName || 'P').trim().charAt(0).toUpperCase() || 'P';
 
   return html`
     <div class="game">
       <div class="game-header">
         <div class="player-chip opp ${game.turn === 'peer' ? 'active' : ''}">
-          <div class="p-avatar">P</div>
+          <div class="p-avatar">${peerInitial}</div>
           <div>
-            <div class="p-name">Przeciwnik</div>
+            <div class="p-name">${peerDisplay}</div>
             <div class="p-score">${peerTotal}</div>
           </div>
         </div>
@@ -26,17 +32,34 @@ export function Game({ state, rollingKey, previewCategory, setPreviewCategory, o
         </div>
         <div class="player-chip you ${game.turn === 'self' ? 'active' : ''}">
           <div style="text-align:right">
-            <div class="p-name">Ty</div>
+            ${editingName ? html`
+              <input
+                class="p-name-input"
+                type="text"
+                maxlength="20"
+                autofocus
+                value=${selfName}
+                placeholder="Twoje imię"
+                onBlur=${(e) => { onSetName(e.target.value); setEditingName(false); }}
+                onKeyDown=${(e) => { if (e.key === 'Enter' || e.key === 'Escape') e.target.blur(); }}
+              />
+            ` : html`
+              <button
+                class="p-name p-name-edit"
+                onClick=${() => setEditingName(true)}
+                title="Zmień imię"
+              >${selfDisplay}<span class="edit-mark">✎</span></button>
+            `}
             <div class="p-score">${selfTotal}</div>
           </div>
-          <div class="p-avatar">T</div>
+          <div class="p-avatar">${selfInitial}</div>
         </div>
       </div>
 
       <div class="card dice-card">
         <div class="turn-bar">
           <div class="turn-label ${game.turn === 'self' ? '' : 'theirs'}">
-            ${game.turn === 'self' ? 'Twój ruch' : 'Ruch przeciwnika'}
+            ${game.turn === 'self' ? 'Twój ruch' : `Ruch ${peerDisplay === 'Przeciwnik' ? 'przeciwnika' : peerDisplay}`}
           </div>
           <div class="roll-count">Rzut ${String(game.rollNumber).padStart(2, '0')}/${String(MAX_ROLLS).padStart(2, '0')}</div>
         </div>
@@ -67,6 +90,12 @@ export function Game({ state, rollingKey, previewCategory, setPreviewCategory, o
         interactive=${interactive && game.rollNumber > 0}
         onBank=${onBank}
       />
+
+      ${onEndGame && html`
+        <button class="btn ghost end-game-btn" onClick=${onEndGame}>
+          Zakończ grę
+        </button>
+      `}
     </div>
   `;
 }

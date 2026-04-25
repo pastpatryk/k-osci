@@ -32,6 +32,52 @@ function rollValues(existing, held) {
   return out;
 }
 
+// ---------- Host session persistence ----------
+// Keep the host's identity + game state across refreshes so a reload doesn't
+// spawn a brand-new room. Guest state isn't persisted — guests rehydrate via
+// SYNC_STATE on reconnect.
+const STORAGE_KEY = 'kosci.host.session';
+const STORAGE_TTL_MS = 6 * 60 * 60 * 1000;
+
+function loadHostSnapshot() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== 'object') return null;
+    if (Date.now() - data.savedAt > STORAGE_TTL_MS) {
+      localStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
+    return data;
+  } catch (_) {
+    return null;
+  }
+}
+
+function saveHostSnapshot(state) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      state,
+      savedAt: Date.now(),
+    }));
+  } catch (_) {}
+}
+
+function clearHostSnapshot() {
+  try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+}
+
+const NAME_KEY = 'kosci.name';
+
+function loadOwnName() {
+  try { return (localStorage.getItem(NAME_KEY) || '').slice(0, 20); } catch (_) { return ''; }
+}
+
+function saveOwnName(name) {
+  try { localStorage.setItem(NAME_KEY, name); } catch (_) {}
+}
+
 function App() {
   const role = useMemo(() => {
     const url = new URL(location.href);
@@ -39,7 +85,25 @@ function App() {
     return joinId ? 'guest' : 'host';
   }, []);
 
-  const [state, dispatch] = useReducer(reducer, undefined, () => initialState(role));
+  const [state, dispatch] = useReducer(reducer, undefined, () => {
+    const storedName = loadOwnName();
+    if (role === 'host') {
+      const snap = loadHostSnapshot();
+      if (snap?.state) {
+        return {
+          ...snap.state,
+          session: {
+            ...snap.state.session,
+            status: 'idle',
+            selfName: snap.state.session.selfName || storedName,
+          },
+        };
+      }
+    }
+    const init = initialState(role);
+    if (storedName) init.session.selfName = storedName;
+    return init;
+  });
   const netRef = useRef(null);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -48,15 +112,40 @@ function App() {
   const [showConfirmExit, setShowConfirmExit] = useState(false);
   const [previewCategory, setPreviewCategory] = useState(null);
 
+  const [started, setStarted] = useState(() => {
+    if (role === 'host') {
+      const url = new URL(location.href);
+      if (url.searchParams.get('host')) return true;
+      if (loadHostSnapshot()) return true;
+    }
+    return false;
+  });
+
   useEffect(() => {
+    if (!started) return;
     const net = new NetClient();
     netRef.current = net;
     if (typeof window !== 'undefined') window.__net = net;
-    net.init();
+
+    let preferredId = null;
+    if (role === 'host') {
+      const url = new URL(location.href);
+      preferredId = url.searchParams.get('host');
+      if (!preferredId) {
+        preferredId = stateRef.current.session.selfId;
+      }
+      if (preferredId && !isValidPeerId(preferredId)) preferredId = null;
+    }
+    net.init(preferredId);
 
     net.on('self-id', (id) => {
       dispatch({ type: 'SET_SELF_ID', payload: { selfId: id } });
       if (role === 'host') {
+        const url = new URL(location.href);
+        if (url.searchParams.get('host') !== id) {
+          url.searchParams.set('host', id);
+          history.replaceState(null, '', url.toString());
+        }
         net.host();
         dispatch({ type: 'SET_CONNECTION', payload: { status: 'idle' } });
       } else {
@@ -71,14 +160,15 @@ function App() {
 
     net.on('open', ({ peerId }) => {
       dispatch({ type: 'SET_CONNECTION', payload: { peerId, status: 'connected' } });
+      const s = stateRef.current;
       if (role === 'host') {
-        const s = stateRef.current;
         net.send('SYNC_STATE', {
           game: s.game,
           tally: s.session.tally,
           gameNumber: s.session.gameNumber,
         });
       }
+      if (s.session.selfName) net.send('SET_NAME', { name: s.session.selfName });
     });
 
     net.on('close', () => {
@@ -94,6 +184,7 @@ function App() {
         case 'TOGGLE_HOLD':
         case 'BANK_SCORE':
         case 'RESET_GAME':
+        case 'SET_NAME':
           dispatch({ type: msg.type, payload: msg.payload, remote: true });
           break;
         default:
@@ -110,11 +201,20 @@ function App() {
 
     return () => net.close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [started]);
 
   const send = (type, payload) => {
     dispatch({ type, payload });
     netRef.current?.send(type, payload);
+  };
+
+  const setName = (name) => {
+    const trimmed = (name || '').slice(0, 20);
+    saveOwnName(trimmed);
+    dispatch({ type: 'SET_NAME', payload: { name: trimmed } });
+    if (state.session.status === 'connected') {
+      netRef.current?.send('SET_NAME', { name: trimmed });
+    }
   };
 
   const startGame = () => {
@@ -165,15 +265,30 @@ function App() {
   const backToLobby = () => {
     netRef.current?.close();
     dispatch({ type: 'CLEAR_SESSION' });
-    const net = new NetClient();
-    netRef.current = net;
-    if (typeof window !== 'undefined') window.__net = net;
-    net.init();
-    net.on('self-id', (id) => dispatch({ type: 'SET_SELF_ID', payload: { selfId: id } }));
-    net.on('status', (status) => dispatch({ type: 'SET_CONNECTION', payload: { status } }));
-    net.on('open', () => dispatch({ type: 'SET_CONNECTION', payload: { status: 'connected' } }));
-    net.on('close', () => dispatch({ type: 'SET_CONNECTION', payload: { status: 'waiting' } }));
+    if (role === 'host') {
+      clearHostSnapshot();
+      const url = new URL(location.href);
+      if (url.searchParams.has('host')) {
+        url.searchParams.delete('host');
+        history.replaceState(null, '', url.toString());
+      }
+    }
+    setStarted(false);
   };
+
+  useEffect(() => {
+    if (role !== 'host') return;
+    if (!state.session.selfId) return;
+    saveHostSnapshot(state);
+  }, [role, state]);
+
+  // Whenever the connection becomes 'connected' or our name changes while
+  // already connected, push our latest name to the peer.
+  useEffect(() => {
+    if (state.session.status !== 'connected') return;
+    if (!state.session.selfName) return;
+    netRef.current?.send('SET_NAME', { name: state.session.selfName });
+  }, [state.session.status, state.session.selfName]);
 
   const prevPhase = useRef(state.game.phase);
   useEffect(() => {
@@ -229,6 +344,12 @@ function App() {
           role=${role}
           selfId=${state.session.selfId}
           status=${state.session.status}
+          started=${started}
+          selfName=${state.session.selfName}
+          peerName=${state.session.peerName}
+          onSetName=${setName}
+          onCreate=${() => setStarted(true)}
+          onCancelRoom=${backToLobby}
           onStart=${startGame}
           tally=${state.session.tally}
         />
@@ -240,15 +361,21 @@ function App() {
           rollingKey=${rollingKey}
           previewCategory=${previewCategory}
           setPreviewCategory=${setPreviewCategory}
+          selfName=${state.session.selfName}
+          peerName=${state.session.peerName}
+          onSetName=${setName}
           onRoll=${doRoll}
           onToggleHold=${toggleHold}
           onBank=${bank}
+          onEndGame=${role === 'host' ? () => setShowConfirmExit(true) : null}
         />
       `}
 
       ${state.game.phase === 'gameOver' && html`
         <${GameOver}
           state=${state}
+          selfName=${state.session.selfName}
+          peerName=${state.session.peerName}
           onRematch=${rematch}
           onBackToLobby=${() => setShowConfirmExit(true)}
         />

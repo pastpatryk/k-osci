@@ -62,9 +62,10 @@ export class NetClient extends Emitter {
   }
 
   // Create the Peer. Emits 'self-id' when the PeerJS server assigns one.
-  init(attempt = 0) {
-    const friendly = generateFriendlyId();
-    this.peer = new Peer(friendly, {
+  // Pass a preferredId to attempt to register under a known ID (used for refresh-resume).
+  init(preferredId, attempt = 0) {
+    const id = preferredId || generateFriendlyId();
+    this.peer = new Peer(id, {
       debug: 2,
       config: {
         iceServers: [
@@ -114,7 +115,8 @@ export class NetClient extends Emitter {
       // On friendly-id collision (unavailable-id), retry a handful of times.
       if (err && err.type === 'unavailable-id' && attempt < 5) {
         try { this.peer.destroy(); } catch (_) {}
-        setTimeout(() => this.init(attempt + 1), 200);
+        // Drop the preferredId on retry — fall back to a fresh friendly ID.
+        setTimeout(() => this.init(undefined, attempt + 1), 200);
         return;
       }
       this.emit('error', err);

@@ -203,6 +203,42 @@
         line-height: 1.55;
       }
 
+      .end-game-btn {
+        margin-top: 1.5rem;
+        align-self: center;
+        font-size: 0.85rem;
+        opacity: 0.7;
+      }
+      .end-game-btn:hover { opacity: 1; }
+
+      .name-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+      }
+      .name-field label {
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .name-field input {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 0.85rem 1rem;
+        font: inherit;
+        font-size: 1rem;
+        color: var(--ink);
+        transition: border-color 160ms, box-shadow 220ms;
+      }
+      .name-field input:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-wash);
+      }
+
       .id-card {
         background: var(--paper);
         border: 1px solid var(--line);
@@ -379,6 +415,37 @@
         color: var(--paper);
       }
       .player-chip .p-name { font-weight: 700; font-size: 0.95rem; }
+      .player-chip .p-name-edit {
+        background: transparent;
+        border: none;
+        padding: 0;
+        font: inherit;
+        font-weight: 700;
+        font-size: 0.95rem;
+        color: inherit;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+      }
+      .player-chip .p-name-edit .edit-mark {
+        font-size: 0.7rem;
+        color: var(--muted-soft);
+      }
+      .player-chip .p-name-input {
+        background: var(--paper);
+        border: 1px solid var(--accent);
+        border-radius: 0.5rem;
+        padding: 0.2rem 0.45rem;
+        font: inherit;
+        font-weight: 700;
+        font-size: 0.95rem;
+        color: var(--ink);
+        width: 7rem;
+        max-width: 100%;
+        text-align: right;
+        outline: none;
+      }
       .player-chip .p-score {
         color: var(--muted);
         font-variant-numeric: tabular-nums;
